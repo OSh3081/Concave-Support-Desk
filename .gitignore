@@ -227,3 +227,9 @@ __marimo__/
 node_modules/
 dist/
 .vite/
+
+# macOS
+.DS_Store
+
+# Keep example environment files in version control
+!.env.example
