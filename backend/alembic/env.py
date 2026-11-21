@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 
 from app.db.session import Base, database_url
+import app.models  # noqa: F401 — register all mapped tables with Base.metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", str(database_url).replace("%", "%%"))
