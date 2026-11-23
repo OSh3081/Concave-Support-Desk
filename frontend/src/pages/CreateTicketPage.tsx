@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { getApiErrorMessage } from '../services/apiClient'
 import { createTicket } from '../services/tickets.service'
@@ -26,10 +26,11 @@ export default function CreateTicketPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [requestError, setRequestError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const submissionInFlight = useRef(false)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (isSubmitting) return
+    if (submissionInFlight.current || isSubmitting) return
 
     const trimmedSubject = subject.trim()
     const trimmedDescription = description.trim()
@@ -51,6 +52,7 @@ export default function CreateTicketPage() {
       description: trimmedDescription,
     }
 
+    submissionInFlight.current = true
     setIsSubmitting(true)
     try {
       const ticket = await createTicket(payload)
@@ -61,6 +63,7 @@ export default function CreateTicketPage() {
     } catch (error: unknown) {
       setRequestError(getApiErrorMessage(error))
     } finally {
+      submissionInFlight.current = false
       setIsSubmitting(false)
     }
   }
@@ -85,7 +88,11 @@ export default function CreateTicketPage() {
                 <select
                   id="ticket-category"
                   value={category}
-                  onChange={(event) => setCategory(event.target.value as TicketCategory | '')}
+                  onChange={(event) => {
+                    setCategory(event.target.value as TicketCategory | '')
+                    setFieldErrors((current) => ({ ...current, category: undefined }))
+                    setRequestError(null)
+                  }}
                   aria-invalid={Boolean(fieldErrors.category)}
                   aria-describedby={fieldErrors.category ? 'ticket-category-error' : undefined}
                   className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
@@ -100,16 +107,20 @@ export default function CreateTicketPage() {
               <div>
                 <div className="flex items-baseline justify-between gap-2">
                   <label htmlFor="ticket-subject" className="block text-sm font-semibold text-slate-800">Subject <span className="text-rose-700">*</span></label>
-                  <span className="text-xs text-slate-500">{countCharacters(subject.trim())}/200</span>
+                  <span id="ticket-subject-count" className="text-xs text-slate-600">{countCharacters(subject.trim())}/200 characters</span>
                 </div>
                 <input
                   id="ticket-subject"
                   type="text"
                   value={subject}
-                  onChange={(event) => setSubject(event.target.value)}
+                  onChange={(event) => {
+                    setSubject(event.target.value)
+                    setFieldErrors((current) => ({ ...current, subject: undefined }))
+                    setRequestError(null)
+                  }}
                   required
                   aria-invalid={Boolean(fieldErrors.subject)}
-                  aria-describedby={fieldErrors.subject ? 'ticket-subject-error' : undefined}
+                  aria-describedby={fieldErrors.subject ? 'ticket-subject-error ticket-subject-count' : 'ticket-subject-count'}
                   className="mt-2 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
                   placeholder="Briefly summarize the issue"
                   disabled={isSubmitting}
@@ -120,16 +131,20 @@ export default function CreateTicketPage() {
               <div>
                 <div className="flex items-baseline justify-between gap-2">
                   <label htmlFor="ticket-description" className="block text-sm font-semibold text-slate-800">Description <span className="text-rose-700">*</span></label>
-                  <span className="text-xs text-slate-500">{countCharacters(description.trim())}/10,000</span>
+                  <span id="ticket-description-count" className="text-xs text-slate-600">{countCharacters(description.trim())}/10,000 characters</span>
                 </div>
                 <textarea
                   id="ticket-description"
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
+                  onChange={(event) => {
+                    setDescription(event.target.value)
+                    setFieldErrors((current) => ({ ...current, description: undefined }))
+                    setRequestError(null)
+                  }}
                   required
                   rows={7}
                   aria-invalid={Boolean(fieldErrors.description)}
-                  aria-describedby={fieldErrors.description ? 'ticket-description-error' : undefined}
+                  aria-describedby={fieldErrors.description ? 'ticket-description-error ticket-description-count' : 'ticket-description-count'}
                   className="mt-2 block w-full resize-y rounded-lg border border-slate-300 px-3 py-2.5 text-sm leading-6 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
                   placeholder="Share the details that will help us understand and resolve your request"
                   disabled={isSubmitting}
@@ -146,10 +161,10 @@ export default function CreateTicketPage() {
             )}
 
             <div className="mt-8 flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
-              <Link to="/member" aria-disabled={isSubmitting} className={`inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 ${isSubmitting ? 'pointer-events-none opacity-50' : ''}`}>
+              <Link to="/member" aria-disabled={isSubmitting} onClick={(event) => { if (isSubmitting) event.preventDefault() }} className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 ${isSubmitting ? 'cursor-not-allowed opacity-50' : ''}`}>
                 Cancel
               </Link>
-              <button type="submit" disabled={isSubmitting} className="inline-flex items-center justify-center rounded-lg bg-emerald-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="submit" disabled={isSubmitting} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-60">
                 {isSubmitting ? 'Submitting…' : 'Submit ticket'}
               </button>
             </div>

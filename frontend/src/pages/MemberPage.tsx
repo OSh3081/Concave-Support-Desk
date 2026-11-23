@@ -3,50 +3,16 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { getApiErrorMessage } from '../services/apiClient'
 import { getMyTickets } from '../services/tickets.service'
-import type { TicketPriority, TicketStatus, TicketSummary } from '../types/tickets'
+import { formatTicketLabel, PriorityBadge, StatusBadge } from '../components/common/TicketBadges'
+import type { TicketSummary } from '../types/tickets'
 
 const PAGE_SIZE = 10
 const RECENT_TICKET_COUNT = 3
-
-const statusStyles: Record<TicketStatus, string> = {
-  OPEN: 'bg-sky-50 text-sky-700 ring-sky-200',
-  IN_PROGRESS: 'bg-violet-50 text-violet-700 ring-violet-200',
-  RESOLVED: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  CLOSED: 'bg-slate-100 text-slate-600 ring-slate-200',
-  REOPENED: 'bg-amber-50 text-amber-800 ring-amber-200',
-  ESCALATED: 'bg-rose-50 text-rose-700 ring-rose-200',
-}
-
-const priorityStyles: Record<TicketPriority, string> = {
-  LOW: 'bg-slate-100 text-slate-600',
-  MEDIUM: 'bg-amber-50 text-amber-800',
-  HIGH: 'bg-rose-50 text-rose-700',
-}
-
-function formatLabel(value: string): string {
-  return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
 
 function formatDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
-}
-
-function StatusBadge({ status }: { status: TicketStatus }) {
-  return (
-    <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyles[status]}`}>
-      {formatLabel(status)}
-    </span>
-  )
-}
-
-function PriorityBadge({ priority }: { priority: TicketPriority }) {
-  return (
-    <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${priorityStyles[priority]}`}>
-      {formatLabel(priority)}
-    </span>
-  )
 }
 
 function TicketRows({ tickets }: { tickets: TicketSummary[] }) {
@@ -55,8 +21,8 @@ function TicketRows({ tickets }: { tickets: TicketSummary[] }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[850px] border-collapse text-left">
+    <div className="overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700" tabIndex={0} role="region" aria-label="Ticket list. Scroll horizontally to see all columns.">
+      <table className="w-full min-w-[780px] border-collapse text-left">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <th className="px-5 py-3">Ticket</th>
@@ -76,7 +42,7 @@ function TicketRows({ tickets }: { tickets: TicketSummary[] }) {
                   <p className="mt-1 truncate text-sm font-medium text-slate-900 group-hover:text-emerald-900" title={ticket.subject}>{ticket.subject}</p>
                 </Link>
               </td>
-              <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{formatLabel(ticket.category)}</td>
+              <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{formatTicketLabel(ticket.category)}</td>
               <td className="px-5 py-4"><PriorityBadge priority={ticket.priority} /></td>
               <td className="px-5 py-4"><StatusBadge status={ticket.status} /></td>
               <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{formatDate(ticket.created_at)}</td>
@@ -102,6 +68,10 @@ export default function MemberPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount)
+  }, [page, pageCount])
 
   useEffect(() => {
     const state = location.state as { ticketCreated?: boolean; ticketNumber?: string } | null
@@ -164,7 +134,7 @@ export default function MemberPage() {
         )}
 
         <div className="mt-5 flex justify-end">
-          <Link to="/member/tickets/new" className="inline-flex items-center justify-center rounded-lg bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-emerald-700">
+          <Link to="/member/tickets/new" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-emerald-700">
             Create Ticket
           </Link>
         </div>
@@ -194,7 +164,7 @@ export default function MemberPage() {
             <div className="grid gap-3 md:grid-cols-3">
               {recentTickets.map((ticket) => (
                 <Link key={ticket.id} to={`/member/tickets/${ticket.id}`} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold tracking-wide text-emerald-800">{ticket.ticket_number}</p>
                       <h3 className="mt-1 truncate text-sm font-semibold text-slate-900" title={ticket.subject}>{ticket.subject}</h3>
@@ -226,7 +196,7 @@ export default function MemberPage() {
             <div role="alert" className="px-5 py-10 text-center">
               <p className="font-medium text-slate-900">We couldn’t load your tickets.</p>
               <p className="mt-2 text-sm text-slate-600">{error}</p>
-              <button type="button" onClick={() => setRefreshKey((current) => current + 1)} className="mt-4 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900">
+              <button type="button" onClick={() => setRefreshKey((current) => current + 1)} className="mt-4 min-h-11 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900">
                 Try again
               </button>
             </div>
@@ -243,11 +213,11 @@ export default function MemberPage() {
               <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <p className="text-sm text-slate-500">Showing {firstVisible}–{lastVisible} of {total}</p>
                 <nav aria-label="Ticket list pages" className="flex items-center gap-2">
-                  <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45">
+                  <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || isLoading} className="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45">
                     Previous
                   </button>
-                  <span className="px-2 text-sm text-slate-600">Page {page} of {pageCount}</span>
-                  <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page >= pageCount} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45">
+                  <span className="px-2 text-sm text-slate-600" aria-live="polite">Page {page} of {pageCount}</span>
+                  <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page >= pageCount || isLoading} className="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45">
                     Next
                   </button>
                 </nav>
