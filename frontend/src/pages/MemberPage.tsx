@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { getApiErrorMessage } from '../services/apiClient'
 import { getMyTickets } from '../services/tickets.service'
@@ -88,6 +89,9 @@ function TicketRows({ tickets }: { tickets: TicketSummary[] }) {
 
 export default function MemberPage() {
   const { user, logout } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
   const [tickets, setTickets] = useState<TicketSummary[]>([])
@@ -96,6 +100,13 @@ export default function MemberPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  useEffect(() => {
+    const state = location.state as { ticketCreated?: boolean; ticketNumber?: string } | null
+    if (!state?.ticketCreated) return
+    setSuccessMessage(state.ticketNumber ? `Ticket ${state.ticketNumber} was created successfully.` : 'Your ticket was created successfully.')
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate])
 
   useEffect(() => {
     let active = true
@@ -142,6 +153,19 @@ export default function MemberPage() {
             </button>
           </div>
         </header>
+
+        {successMessage && (
+          <div role="status" className="mt-5 flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 sm:flex-row sm:items-center sm:justify-between">
+            <p>{successMessage}</p>
+            <button type="button" onClick={() => setSuccessMessage(null)} className="self-start font-semibold underline underline-offset-2 sm:self-auto">Dismiss</button>
+          </div>
+        )}
+
+        <div className="mt-5 flex justify-end">
+          <Link to="/member/tickets/new" className="inline-flex items-center justify-center rounded-lg bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-emerald-700">
+            Create Ticket
+          </Link>
+        </div>
 
         <section aria-label="Ticket overview" className="mt-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(240px,0.42fr)]">
           <div className="rounded-2xl bg-emerald-900 p-6 text-white shadow-sm sm:p-8">

@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import MemberPage from './pages/MemberPage'
 import NotFoundPage from './pages/NotFoundPage'
 import SupportPage from './pages/SupportPage'
+import CreateTicketPage from './pages/CreateTicketPage'
 
 export default function App() {
   const { user, isLoading } = useAuth()
@@ -16,6 +17,7 @@ export default function App() {
       <Route path="/" element={root} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/member" element={<ProtectedRoute role="MEMBER"><MemberPage /></ProtectedRoute>} />
+      <Route path="/member/tickets/new" element={<ProtectedRoute role="MEMBER"><CreateTicketPage /></ProtectedRoute>} />
       <Route path="/support" element={<ProtectedRoute role="SUPPORT_AGENT"><SupportPage /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute role="SUPPORT_HEAD"><AdminPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFoundPage />} />
