@@ -1,3 +1,5 @@
+import { useAuth } from '../../auth/AuthContext'
+
 type AreaPlaceholderProps = {
   eyebrow: string
   title: string
@@ -5,6 +7,7 @@ type AreaPlaceholderProps = {
 }
 
 export default function AreaPlaceholder({ eyebrow, title, description }: AreaPlaceholderProps) {
+  const { user, logout } = useAuth()
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
       <section className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
@@ -14,9 +17,10 @@ export default function AreaPlaceholder({ eyebrow, title, description }: AreaPla
         <p className="mt-8 text-sm font-medium text-slate-500">{eyebrow}</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">{title}</h1>
         <p className="mt-4 leading-7 text-slate-600">{description}</p>
-        <p className="mt-8 border-t border-slate-100 pt-5 text-sm text-slate-500">
-          Frontend foundation · Stage E.1
-        </p>
+        <div className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-slate-500"><p className="font-medium text-slate-700">Signed in as {user?.name}</p><p className="mt-1">Role: {user?.role}</p></div>
+          <button type="button" onClick={logout} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Sign out</button>
+        </div>
       </section>
     </main>
   )

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getAccessToken } from './auth.service'
+import { clearAccessToken, getAccessToken } from './auth.service'
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL?.trim() || 'http://localhost:8000/api',
@@ -12,6 +12,20 @@ apiClient.interceptors.request.use((config) => {
   if (token) config.headers.set('Authorization', `Bearer ${token}`)
   return config
 })
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      // A failed login is a form error. Other 401s invalidate the stored session.
+      if (!error.config?.url?.includes('/auth/login')) {
+        clearAccessToken()
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('concave:session-expired'))
+      }
+    }
+    return Promise.reject(error)
+  },
+)
 
 /** Converts an API failure into a useful message while keeping error handling outside UI components. */
 export function getApiErrorMessage(error: unknown): string {
