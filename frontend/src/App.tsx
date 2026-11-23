@@ -9,6 +9,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import SupportPage from './pages/SupportPage'
 import CreateTicketPage from './pages/CreateTicketPage'
 import TicketDetailPage from './pages/TicketDetailPage'
+import SupportTicketDetailPage from './pages/SupportTicketDetailPage'
 
 export default function App() {
   const { user, isLoading } = useAuth()
@@ -21,6 +22,7 @@ export default function App() {
       <Route path="/member/tickets/new" element={<ProtectedRoute role="MEMBER"><CreateTicketPage /></ProtectedRoute>} />
       <Route path="/member/tickets/:ticketId" element={<ProtectedRoute role="MEMBER"><TicketDetailPage /></ProtectedRoute>} />
       <Route path="/support" element={<ProtectedRoute role="SUPPORT_AGENT"><SupportPage /></ProtectedRoute>} />
+      <Route path="/support/tickets/:ticketId" element={<ProtectedRoute role="SUPPORT_AGENT"><SupportTicketDetailPage /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute role="SUPPORT_HEAD"><AdminPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

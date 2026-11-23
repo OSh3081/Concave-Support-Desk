@@ -14,6 +14,18 @@ export async function getMyTickets(page = 1, pageSize = 20): Promise<TicketList>
   return data
 }
 
+export async function getSupportTickets(page = 1, pageSize = 20): Promise<TicketList> {
+  const { data } = await apiClient.get<TicketList>('/support/tickets', {
+    params: { page, page_size: pageSize },
+  })
+  return data
+}
+
+export async function getSupportTicket(ticketId: number): Promise<TicketDetail> {
+  const { data } = await apiClient.get<TicketDetail>(`/support/tickets/${ticketId}`)
+  return data
+}
+
 export async function getTicket(ticketId: number): Promise<TicketDetail> {
   const { data } = await apiClient.get<TicketDetail>(`/tickets/${ticketId}`)
   return data
