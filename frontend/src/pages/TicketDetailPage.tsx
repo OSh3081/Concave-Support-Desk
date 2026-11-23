@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getApiErrorMessage } from '../services/apiClient'
-import { getTicket, replyToTicket } from '../services/tickets.service'
+import { confirmTicketResolution, getTicket, reopenTicket, replyToTicket } from '../services/tickets.service'
 import type { TicketDetail, TicketHistory, TicketPriority, TicketReply, TicketStatus } from '../types/tickets'
 
 const statusStyles: Record<TicketStatus, string> = {
@@ -34,7 +34,8 @@ function characterCount(value: string): number {
 }
 
 function StatusBadge({ status }: { status: TicketStatus }) {
-  return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyles[status]}`}>{formatLabel(status)}</span>
+  const style = statusStyles[status] ?? 'bg-slate-100 text-slate-700 ring-slate-200'
+  return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${style}`}>{formatLabel(status)}</span>
 }
 
 function PriorityBadge({ priority }: { priority: TicketPriority }) {
@@ -88,6 +89,10 @@ export default function TicketDetailPage() {
   const [replyError, setReplyError] = useState<string | null>(null)
   const [replySuccess, setReplySuccess] = useState<string | null>(null)
   const [isReplying, setIsReplying] = useState(false)
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+  const [lifecycleSuccess, setLifecycleSuccess] = useState<string | null>(null)
+  const [lifecycleAction, setLifecycleAction] = useState<'confirm' | 'reopen' | null>(null)
+  const [reopenReason, setReopenReason] = useState('')
 
   useEffect(() => {
     let active = true
@@ -98,6 +103,10 @@ export default function TicketDetailPage() {
     setReplyError(null)
     setReplySuccess(null)
     setIsReplying(false)
+    setLifecycleError(null)
+    setLifecycleSuccess(null)
+    setLifecycleAction(null)
+    setReopenReason('')
 
     if (!validTicketId) {
       setLoadError('This ticket address is invalid.')
@@ -128,7 +137,9 @@ export default function TicketDetailPage() {
     () => [...(currentTicket?.history ?? [])].filter((event) => !isInternalReplyHistory(event)).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id),
     [currentTicket],
   )
-  const repliesUnavailable = currentTicket?.status === 'RESOLVED' || currentTicket?.status === 'CLOSED'
+  const knownStatuses: TicketStatus[] = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'REOPENED', 'ESCALATED']
+  const statusIsKnown = currentTicket ? knownStatuses.includes(currentTicket.status) : true
+  const repliesUnavailable = !statusIsKnown || currentTicket?.status === 'RESOLVED' || currentTicket?.status === 'CLOSED'
   const currentLoadError = loadErrorForTicketId === (ticketIdParam ?? '') ? loadError : null
 
   async function handleReply(event: FormEvent<HTMLFormElement>) {
@@ -172,6 +183,36 @@ export default function TicketDetailPage() {
     }
   }
 
+  async function handleLifecycleAction(action: 'confirm' | 'reopen') {
+    if (lifecycleAction || !currentTicket || currentTicket.id !== activeTicketId.current) return
+    const submittedTicketId = currentTicket.id
+    const reason = reopenReason.trim()
+    if (action === 'reopen' && (!reason || Array.from(reason).length > 1000)) {
+      setLifecycleError(reason ? 'Your reason must be 1,000 characters or fewer.' : 'Enter a reason for reopening this ticket.')
+      return
+    }
+    if (action === 'confirm' && !window.confirm('Confirm that this issue is resolved and close the ticket?')) return
+    if (action === 'reopen' && !window.confirm('Reopen this ticket with the reason you entered? The support team will be notified.')) return
+
+    setLifecycleAction(action)
+    setLifecycleError(null)
+    setLifecycleSuccess(null)
+    try {
+      const updated = action === 'confirm'
+        ? await confirmTicketResolution(submittedTicketId)
+        : await reopenTicket(submittedTicketId, { reason })
+      if (activeTicketId.current !== submittedTicketId) return
+      setTicket(updated)
+      setReopenReason('')
+      setLifecycleSuccess(action === 'confirm' ? 'Resolution confirmed. This ticket is now closed.' : 'Ticket reopened. The support team has been notified.')
+      setLoadError(null)
+    } catch (error: unknown) {
+      if (activeTicketId.current === submittedTicketId) setLifecycleError(getApiErrorMessage(error))
+    } finally {
+      if (activeTicketId.current === submittedTicketId) setLifecycleAction(null)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 sm:py-9">
       <div className="mx-auto max-w-5xl">
@@ -206,6 +247,27 @@ export default function TicketDetailPage() {
                 </div>
                 <StatusBadge status={currentTicket.status} />
               </div>
+              {!statusIsKnown && <p role="status" className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">This ticket has an unfamiliar status. Lifecycle actions are unavailable until the ticket can be refreshed.</p>}
+              {(currentTicket.status === 'RESOLVED' || currentTicket.status === 'CLOSED') && statusIsKnown && (
+                <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 sm:flex sm:items-start sm:justify-between sm:gap-5">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-900">Ticket actions</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{currentTicket.status === 'RESOLVED' ? 'If the issue is fixed, confirm the resolution to close this ticket.' : 'If the issue returns, you can request to reopen this ticket. The server checks the reopening window and limit.'}</p>
+                  </div>
+                  {currentTicket.status === 'RESOLVED' ? (
+                    <button type="button" onClick={() => void handleLifecycleAction('confirm')} disabled={lifecycleAction !== null} className="mt-3 w-full shrink-0 rounded-lg bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-60 sm:mt-0 sm:w-auto">{lifecycleAction === 'confirm' ? 'Confirming…' : 'Confirm resolution'}</button>
+                  ) : (
+                    <div className="mt-3 w-full shrink-0 sm:mt-0 sm:max-w-md">
+                      <label htmlFor="reopen-reason" className="block text-sm font-medium text-slate-800">Why does this ticket need to be reopened?</label>
+                      <textarea id="reopen-reason" value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} rows={3} maxLength={1000} disabled={lifecycleAction !== null} className="mt-2 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 disabled:bg-slate-50" />
+                      <p className="mt-1 text-right text-xs text-slate-500">{Array.from(reopenReason).length}/1,000</p>
+                      <button type="button" onClick={() => void handleLifecycleAction('reopen')} disabled={lifecycleAction !== null} className="mt-2 w-full rounded-lg border border-emerald-800 px-4 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">{lifecycleAction === 'reopen' ? 'Reopening…' : 'Reopen ticket'}</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {lifecycleError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">The ticket action failed: {lifecycleError}</p>}
+              {lifecycleSuccess && <p role="status" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{lifecycleSuccess}</p>}
               <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</p><p className="mt-1 text-sm font-medium text-slate-800">{formatLabel(currentTicket.category)}</p></div>
                 <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</p><div className="mt-1"><PriorityBadge priority={currentTicket.priority} /></div></div>
@@ -250,7 +312,7 @@ export default function TicketDetailPage() {
               <h2 id="reply-heading" className="text-lg font-semibold text-slate-950">Add a reply</h2>
               {repliesUnavailable ? (
                 <p className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-                  Replies are unavailable because this ticket is {currentTicket.status === 'RESOLVED' ? 'resolved and awaiting your confirmation' : 'closed'}.
+                  {!statusIsKnown ? 'Replies are unavailable while this ticket has an unfamiliar status.' : `Replies are unavailable because this ticket is ${currentTicket.status === 'RESOLVED' ? 'resolved and awaiting your confirmation' : 'closed'}.`}
                 </p>
               ) : (
                 <form onSubmit={handleReply} className="mt-4">
