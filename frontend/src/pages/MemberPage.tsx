@@ -71,8 +71,10 @@ function TicketRows({ tickets }: { tickets: TicketSummary[] }) {
           {tickets.map((ticket) => (
             <tr key={ticket.id} className="align-top hover:bg-slate-50/60">
               <td className="max-w-[320px] px-5 py-4">
-                <p className="text-xs font-semibold tracking-wide text-emerald-800">{ticket.ticket_number}</p>
-                <p className="mt-1 truncate text-sm font-medium text-slate-900" title={ticket.subject}>{ticket.subject}</p>
+                <Link to={`/member/tickets/${ticket.id}`} className="group block rounded-sm focus-visible:outline-emerald-700">
+                  <p className="text-xs font-semibold tracking-wide text-emerald-800 group-hover:underline">{ticket.ticket_number}</p>
+                  <p className="mt-1 truncate text-sm font-medium text-slate-900 group-hover:text-emerald-900" title={ticket.subject}>{ticket.subject}</p>
+                </Link>
               </td>
               <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{formatLabel(ticket.category)}</td>
               <td className="px-5 py-4"><PriorityBadge priority={ticket.priority} /></td>
@@ -191,7 +193,7 @@ export default function MemberPage() {
           {recentTickets.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-3">
               {recentTickets.map((ticket) => (
-                <article key={ticket.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <Link key={ticket.id} to={`/member/tickets/${ticket.id}`} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold tracking-wide text-emerald-800">{ticket.ticket_number}</p>
@@ -200,7 +202,7 @@ export default function MemberPage() {
                     <StatusBadge status={ticket.status} />
                   </div>
                   <p className="mt-3 text-xs text-slate-500">Created {formatDate(ticket.created_at)}</p>
-                </article>
+                </Link>
               ))}
             </div>
           ) : (

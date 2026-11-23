@@ -1,0 +1,289 @@
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { getApiErrorMessage } from '../services/apiClient'
+import { getTicket, replyToTicket } from '../services/tickets.service'
+import type { TicketDetail, TicketHistory, TicketPriority, TicketReply, TicketStatus } from '../types/tickets'
+
+const statusStyles: Record<TicketStatus, string> = {
+  OPEN: 'bg-sky-50 text-sky-700 ring-sky-200',
+  IN_PROGRESS: 'bg-violet-50 text-violet-700 ring-violet-200',
+  RESOLVED: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  CLOSED: 'bg-slate-100 text-slate-600 ring-slate-200',
+  REOPENED: 'bg-amber-50 text-amber-800 ring-amber-200',
+  ESCALATED: 'bg-rose-50 text-rose-700 ring-rose-200',
+}
+
+const priorityStyles: Record<TicketPriority, string> = {
+  LOW: 'bg-slate-100 text-slate-600',
+  MEDIUM: 'bg-amber-50 text-amber-800',
+  HIGH: 'bg-rose-50 text-rose-700',
+}
+
+function formatLabel(value: string): string {
+  return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function characterCount(value: string): number {
+  return Array.from(value).length
+}
+
+function StatusBadge({ status }: { status: TicketStatus }) {
+  return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyles[status]}`}>{formatLabel(status)}</span>
+}
+
+function PriorityBadge({ priority }: { priority: TicketPriority }) {
+  return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${priorityStyles[priority]}`}>{formatLabel(priority)}</span>
+}
+
+function ConversationReply({ reply }: { reply: TicketReply }) {
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm font-semibold text-slate-900">{reply.sender.name}</p>
+        <time dateTime={reply.created_at} className="text-xs text-slate-500">{formatDateTime(reply.created_at)}</time>
+      </div>
+      <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{reply.message}</p>
+    </article>
+  )
+}
+
+function HistoryEvent({ event }: { event: TicketHistory }) {
+  return (
+    <li className="relative pl-6 before:absolute before:bottom-0 before:left-[5px] before:top-2 before:w-px before:bg-slate-200 last:before:hidden">
+      <span aria-hidden="true" className="absolute left-0 top-2 h-3 w-3 rounded-full border-2 border-emerald-700 bg-white" />
+      <div className="pb-5">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+          <p className="text-sm font-semibold text-slate-800">{formatLabel(event.action)}</p>
+          <time dateTime={event.created_at} className="text-xs text-slate-500">{formatDateTime(event.created_at)}</time>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">By {event.actor.name}</p>
+        {event.reason && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{event.reason}</p>}
+      </div>
+    </li>
+  )
+}
+
+function isInternalReplyHistory(event: TicketHistory): boolean {
+  if (event.action !== 'REPLY_ADDED' || event.new_value === null || Array.isArray(event.new_value)) return false
+  return event.new_value.is_internal === true
+}
+
+export default function TicketDetailPage() {
+  const { ticketId: ticketIdParam } = useParams<{ ticketId: string }>()
+  const ticketId = Number(ticketIdParam)
+  const validTicketId = Number.isSafeInteger(ticketId) && ticketId > 0
+  const activeTicketId = useRef(ticketId)
+  activeTicketId.current = ticketId
+  const [ticket, setTicket] = useState<TicketDetail | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadErrorForTicketId, setLoadErrorForTicketId] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [message, setMessage] = useState('')
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const [replySuccess, setReplySuccess] = useState<string | null>(null)
+  const [isReplying, setIsReplying] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setTicket(null)
+    setLoadError(null)
+    setLoadErrorForTicketId(null)
+    setMessage('')
+    setReplyError(null)
+    setReplySuccess(null)
+    setIsReplying(false)
+
+    if (!validTicketId) {
+      setLoadError('This ticket address is invalid.')
+      setLoadErrorForTicketId(ticketIdParam ?? '')
+      return () => { active = false }
+    }
+
+    getTicket(ticketId)
+      .then((result) => {
+        if (active && activeTicketId.current === ticketId) setTicket(result)
+      })
+      .catch((error: unknown) => {
+        if (active && activeTicketId.current === ticketId) {
+          setLoadError(getApiErrorMessage(error))
+          setLoadErrorForTicketId(ticketIdParam ?? '')
+        }
+      })
+
+    return () => { active = false }
+  }, [ticketId, validTicketId, refreshKey])
+
+  const currentTicket = ticket?.id === ticketId ? ticket : null
+  const visibleReplies = useMemo(
+    () => [...(currentTicket?.replies ?? [])].filter((reply) => !reply.is_internal).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id),
+    [currentTicket],
+  )
+  const visibleHistory = useMemo(
+    () => [...(currentTicket?.history ?? [])].filter((event) => !isInternalReplyHistory(event)).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id),
+    [currentTicket],
+  )
+  const repliesUnavailable = currentTicket?.status === 'RESOLVED' || currentTicket?.status === 'CLOSED'
+  const currentLoadError = loadErrorForTicketId === (ticketIdParam ?? '') ? loadError : null
+
+  async function handleReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (isReplying || !currentTicket || currentTicket.id !== activeTicketId.current || !validTicketId || repliesUnavailable) return
+    const submittedTicketId = currentTicket.id
+
+    const trimmedMessage = message.trim()
+    if (!trimmedMessage) {
+      setReplyError('Enter a message before sending your reply.')
+      return
+    }
+    if (characterCount(trimmedMessage) > 10000) {
+      setReplyError('Your message must be 10,000 characters or fewer.')
+      return
+    }
+
+    setIsReplying(true)
+    setReplyError(null)
+    setReplySuccess(null)
+    try {
+      await replyToTicket(submittedTicketId, { message: trimmedMessage })
+      if (activeTicketId.current !== submittedTicketId) return
+      setMessage('')
+      setReplySuccess('Your reply was sent.')
+      try {
+        const latest = await getTicket(submittedTicketId)
+        if (activeTicketId.current !== submittedTicketId) return
+        setTicket(latest)
+        setLoadError(null)
+      } catch (refreshError: unknown) {
+        if (activeTicketId.current === submittedTicketId) {
+          setLoadError(getApiErrorMessage(refreshError))
+          setLoadErrorForTicketId(ticketIdParam ?? '')
+        }
+      }
+    } catch (error: unknown) {
+      if (activeTicketId.current === submittedTicketId) setReplyError(getApiErrorMessage(error))
+    } finally {
+      if (activeTicketId.current === submittedTicketId) setIsReplying(false)
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 sm:py-9">
+      <div className="mx-auto max-w-5xl">
+        <header className="border-b border-slate-200 pb-5">
+          <Link to="/member" className="text-sm font-semibold text-emerald-800 hover:text-emerald-950">← Back to My Tickets</Link>
+          <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-emerald-800">Concave Insights · Support Desk</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Ticket details</h1>
+        </header>
+
+        {!currentTicket && !currentLoadError ? (
+          <div role="status" className="mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-600 shadow-sm">Loading ticket…</div>
+        ) : currentLoadError && !currentTicket ? (
+          <section role="alert" className="mt-6 rounded-2xl border border-rose-200 bg-white px-5 py-10 text-center shadow-sm">
+            <h2 className="font-semibold text-slate-900">We couldn’t load this ticket.</h2>
+            <p className="mt-2 text-sm text-slate-600">{currentLoadError}</p>
+            <button type="button" onClick={() => setRefreshKey((current) => current + 1)} disabled={!validTicketId} className="mt-5 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900 disabled:opacity-50">Try again</button>
+          </section>
+        ) : currentTicket ? (
+          <>
+            {currentLoadError && (
+              <div role="alert" className="mt-5 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+                <p>Reply sent, but ticket details could not be refreshed: {currentLoadError}</p>
+                <button type="button" onClick={() => setRefreshKey((current) => current + 1)} className="self-start font-semibold underline underline-offset-2 sm:self-auto">Retry refresh</button>
+              </div>
+            )}
+
+            <section aria-labelledby="ticket-heading" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+              <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold tracking-wide text-emerald-800">{currentTicket.ticket_number}</p>
+                  <h2 id="ticket-heading" className="mt-1 break-words text-2xl font-semibold tracking-tight text-slate-950">{currentTicket.subject}</h2>
+                </div>
+                <StatusBadge status={currentTicket.status} />
+              </div>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</p><p className="mt-1 text-sm font-medium text-slate-800">{formatLabel(currentTicket.category)}</p></div>
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</p><div className="mt-1"><PriorityBadge priority={currentTicket.priority} /></div></div>
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned to</p><p className="mt-1 text-sm font-medium text-slate-800">{currentTicket.assigned_to?.name ?? 'Not yet assigned'}</p></div>
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Created</p><time dateTime={currentTicket.created_at} className="mt-1 block text-sm text-slate-700">{formatDateTime(currentTicket.created_at)}</time></div>
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Last updated</p><time dateTime={currentTicket.updated_at} className="mt-1 block text-sm text-slate-700">{formatDateTime(currentTicket.updated_at)}</time></div>
+              </div>
+              <div className="mt-6 rounded-xl bg-slate-50 p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-slate-900">Description</h3>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{currentTicket.description}</p>
+              </div>
+            </section>
+
+            <section aria-labelledby="conversation-heading" className="mt-7">
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">Messages</p>
+                  <h2 id="conversation-heading" className="mt-1 text-xl font-semibold text-slate-950">Conversation</h2>
+                </div>
+                <span className="text-xs text-slate-500">{visibleReplies.length} {visibleReplies.length === 1 ? 'reply' : 'replies'}</span>
+              </div>
+              {visibleReplies.length > 0 ? (
+                <div className="space-y-3">{visibleReplies.map((reply) => <ConversationReply key={reply.id} reply={reply} />)}</div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-500">No replies yet. Your message and any support responses will appear here.</div>
+              )}
+            </section>
+
+            <section aria-labelledby="history-heading" className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="mb-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">Ticket updates</p>
+                <h2 id="history-heading" className="mt-1 text-xl font-semibold text-slate-950">History</h2>
+              </div>
+              {visibleHistory.length > 0 ? (
+                <ol className="space-y-0">{visibleHistory.map((event) => <HistoryEvent key={event.id} event={event} />)}</ol>
+              ) : (
+                <p className="text-sm text-slate-500">No ticket updates to show.</p>
+              )}
+            </section>
+
+            <section aria-labelledby="reply-heading" className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <h2 id="reply-heading" className="text-lg font-semibold text-slate-950">Add a reply</h2>
+              {repliesUnavailable ? (
+                <p className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+                  Replies are unavailable because this ticket is {currentTicket.status === 'RESOLVED' ? 'resolved and awaiting your confirmation' : 'closed'}.
+                </p>
+              ) : (
+                <form onSubmit={handleReply} className="mt-4">
+                  <label htmlFor="ticket-reply" className="block text-sm font-medium text-slate-800">Your message</label>
+                  <textarea
+                    id="ticket-reply"
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    rows={5}
+                    aria-invalid={Boolean(replyError)}
+                    aria-describedby={replyError ? 'ticket-reply-error' : 'ticket-reply-help'}
+                    className="mt-2 block w-full resize-y rounded-lg border border-slate-300 px-3 py-2.5 text-sm leading-6 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 disabled:bg-slate-50"
+                    placeholder="Write a message for the support team"
+                    disabled={isReplying}
+                  />
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p id="ticket-reply-help" className="text-xs text-slate-500">Maximum 10,000 characters. Replies are visible to the support team.</p>
+                    <p className="text-right text-xs text-slate-500">{characterCount(message.trim())}/10,000</p>
+                  </div>
+                  {replyError && <p id="ticket-reply-error" role="alert" className="mt-3 text-sm text-rose-700">{replyError}</p>}
+                  {replySuccess && <p role="status" className="mt-3 text-sm text-emerald-800">{replySuccess}</p>}
+                  {isReplying && <p role="status" className="mt-3 text-sm text-slate-500">Sending your reply…</p>}
+                  <div className="mt-4 flex justify-end">
+                    <button type="submit" disabled={isReplying} className="rounded-lg bg-emerald-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-60">
+                      {isReplying ? 'Sending…' : 'Send reply'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </section>
+          </>
+        ) : null}
+      </div>
+    </main>
+  )
+}
