@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { dashboardForRole, roleForPath } from '../auth/routing'
+import { dashboardForRole, rolesForPath } from '../auth/routing'
 import { getApiErrorMessage } from '../services/apiClient'
 
 type LoginLocationState = { from?: string }
@@ -43,8 +43,8 @@ export default function LoginPage() {
       const signedInUser = await login(normalizedEmail, password)
       setSuccess(true)
       const destination = (location.state as LoginLocationState | null)?.from
-      const role = roleForPath(destination ?? '')
-      navigate(role === signedInUser.role ? destination! : dashboardForRole[signedInUser.role], { replace: true })
+      const roles = rolesForPath(destination ?? '')
+      navigate(roles?.includes(signedInUser.role) ? destination! : dashboardForRole[signedInUser.role], { replace: true })
     } catch (requestError) {
       const message = getApiErrorMessage(requestError)
       setError(message.toLowerCase().includes('invalid email or password')

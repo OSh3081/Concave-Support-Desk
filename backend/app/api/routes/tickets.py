@@ -14,6 +14,7 @@ from app.schemas.tickets import (
     TicketCreate,
     TicketDetail,
     TicketList,
+    UserSummary,
 )
 from app.services import tickets as service
 
@@ -112,6 +113,14 @@ def get_support_queue(
     return service.list_support_tickets(
         db, _support, page, page_size, ticket_status, category, priority, overdue, search
     )
+
+
+@support_router.get("/agents", response_model=list[UserSummary])
+def get_assignable_agents(
+    db: Session = Depends(get_db),
+    _support: User = support_user,
+) -> list[UserSummary]:
+    return service.list_assignable_agents(db)
 
 
 @support_router.get("/tickets/{ticket_id}", response_model=TicketDetail)

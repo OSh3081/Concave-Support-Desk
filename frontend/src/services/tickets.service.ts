@@ -5,6 +5,7 @@ import type {
   TicketCreateRequest,
   TicketDetail,
   TicketList,
+  TicketUserSummary,
 } from '../types/tickets'
 
 export async function getMyTickets(page = 1, pageSize = 20): Promise<TicketList> {
@@ -23,6 +24,18 @@ export async function getSupportTickets(page = 1, pageSize = 20): Promise<Ticket
 
 export async function getSupportTicket(ticketId: number): Promise<TicketDetail> {
   const { data } = await apiClient.get<TicketDetail>(`/support/tickets/${ticketId}`)
+  return data
+}
+
+export async function getAssignableAgents(): Promise<TicketUserSummary[]> {
+  const { data } = await apiClient.get<TicketUserSummary[]>('/support/agents')
+  return data
+}
+
+export async function assignSupportTicket(ticketId: number, assignedToId: number): Promise<TicketDetail> {
+  const { data } = await apiClient.post<TicketDetail>(`/support/tickets/${ticketId}/assign`, {
+    assigned_to_id: assignedToId,
+  })
   return data
 }
 

@@ -542,6 +542,15 @@ def assign_ticket(db: Session, ticket_id: int, actor: User, assigned_to_id: Opti
     return _ticket_detail(ticket, show_internal=True)
 
 
+def list_assignable_agents(db: Session) -> list[UserSummary]:
+    agents = db.scalars(
+        select(User)
+        .where(User.role == UserRole.SUPPORT_AGENT, User.is_active.is_(True))
+        .order_by(User.name, User.id)
+    ).all()
+    return [_summary(agent) for agent in agents]
+
+
 def update_status(
     db: Session,
     ticket_id: int,

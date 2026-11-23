@@ -229,12 +229,83 @@ def test_support_queue_roles_assignment_and_filters(client, users):
     assert assigned.status_code == 200
     assert assigned.json()["assigned_to"]["id"] == users["agent"].id
     assert assigned.json()["history"][-1]["action"] == "TICKET_ASSIGNED"
+    reassigned = client.post(
+        f"/api/support/tickets/{created['id']}/assign",
+        headers=bearer(users["agent"]),
+        json={"assigned_to_id": users["agent2"].id},
+    )
+    assert reassigned.status_code == 200
+    assert reassigned.json()["assigned_to"]["id"] == users["agent2"].id
+    assignment_events = [event for event in reassigned.json()["history"] if event["action"] == "TICKET_ASSIGNED"]
+    assert len(assignment_events) == 2
+    assert assignment_events[-1]["old_value"] == {"assigned_to_id": users["agent"].id}
+    assert assignment_events[-1]["new_value"] == {"assigned_to_id": users["agent2"].id}
+    assert client.get(f"/api/support/tickets/{created['id']}", headers=bearer(users["head"])).json()["assigned_to"]["id"] == users["agent2"].id
+    unassigned = client.post(
+        f"/api/support/tickets/{created['id']}/assign",
+        headers=bearer(users["head"]),
+        json={"assigned_to_id": None},
+    )
+    assert unassigned.status_code == 200
+    assert unassigned.json()["assigned_to"] is None
+    unassignment_event = [event for event in unassigned.json()["history"] if event["action"] == "TICKET_ASSIGNED"][-1]
+    assert unassignment_event["old_value"] == {"assigned_to_id": users["agent2"].id}
+    assert unassignment_event["new_value"] == {"assigned_to_id": None}
+    eligible = client.get("/api/support/agents", headers=bearer(users["head"]))
+    assert eligible.status_code == 200
+    assert {agent["id"] for agent in eligible.json()} == {users["agent"].id, users["agent2"].id}
     bad_assign = client.post(
         f"/api/support/tickets/{created['id']}/assign",
         headers=bearer(users["head"]),
         json={"assigned_to_id": users["member"].id},
     )
     assert bad_assign.status_code == 422
+
+
+def test_assignment_rejects_unauthorized_missing_and_inactive_targets(client, db_session, users):
+    created = create_ticket(client, users["member"])
+    inactive = user(db_session, UserRole.SUPPORT_AGENT, "inactive-agent-tickets@example.test")
+    inactive.is_active = False
+    db_session.flush()
+
+    unauthorized = client.post(
+        f"/api/support/tickets/{created['id']}/assign",
+        headers=bearer(users["member"]),
+        json={"assigned_to_id": users["agent"].id},
+    )
+    assert unauthorized.status_code == 403
+    missing_user = client.post(
+        f"/api/support/tickets/{created['id']}/assign",
+        headers=bearer(users["head"]),
+        json={"assigned_to_id": 99999999},
+    )
+    assert missing_user.status_code == 422
+    inactive_user = client.post(
+        f"/api/support/tickets/{created['id']}/assign",
+        headers=bearer(users["head"]),
+        json={"assigned_to_id": inactive.id},
+    )
+    assert inactive_user.status_code == 422
+    missing_ticket = client.post(
+        "/api/support/tickets/99999999/assign",
+        headers=bearer(users["head"]),
+        json={"assigned_to_id": users["agent"].id},
+    )
+    assert missing_ticket.status_code == 404
+    invalid_id = client.post(
+        "/api/support/tickets/not-a-number/assign",
+        headers=bearer(users["head"]),
+        json={"assigned_to_id": users["agent"].id},
+    )
+    assert invalid_id.status_code == 422
+    assert client.get("/api/support/agents", headers=bearer(users["member"])).status_code == 403
+    eligible = client.get("/api/support/agents", headers=bearer(users["head"]))
+    assert eligible.status_code == 200
+    assert inactive.id not in {agent["id"] for agent in eligible.json()}
+    assert eligible.json() == [
+        {"id": users["agent"].id, "name": users["agent"].name, "email": users["agent"].email, "role": "SUPPORT_AGENT"},
+        {"id": users["agent2"].id, "name": users["agent2"].name, "email": users["agent2"].email, "role": "SUPPORT_AGENT"},
+    ]
 
 
 def test_valid_transitions_resolution_confirmation_and_invalid_transition(client, users):
