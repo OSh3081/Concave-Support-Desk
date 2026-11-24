@@ -85,8 +85,20 @@ export type TicketCreateRequest = {
 
 export type ReplyCreateRequest = {
   message: string
+  is_internal?: boolean
+  request_information?: boolean
 }
 
 export type ReopenRequest = {
   reason: string
+}
+
+export type PriorityUpdateRequest = {
+  priority: TicketPriority
+  reason: string
+}
+
+export type SupportTicketStatusUpdateRequest = {
+  status: TicketStatus
+  reason?: string
 }

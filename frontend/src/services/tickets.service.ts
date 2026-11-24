@@ -1,10 +1,12 @@
 import apiClient from './apiClient'
 import type {
   ReplyCreateRequest,
+  PriorityUpdateRequest,
   ReopenRequest,
   TicketCreateRequest,
   TicketDetail,
   TicketList,
+  SupportTicketStatusUpdateRequest,
   TicketUserSummary,
 } from '../types/tickets'
 
@@ -36,6 +38,22 @@ export async function assignSupportTicket(ticketId: number, assignedToId: number
   const { data } = await apiClient.post<TicketDetail>(`/support/tickets/${ticketId}/assign`, {
     assigned_to_id: assignedToId,
   })
+  return data
+}
+
+export async function changeSupportTicketStatus(
+  ticketId: number,
+  payload: SupportTicketStatusUpdateRequest,
+): Promise<TicketDetail> {
+  const { data } = await apiClient.patch<TicketDetail>(`/support/tickets/${ticketId}/status`, payload)
+  return data
+}
+
+export async function changeSupportTicketPriority(
+  ticketId: number,
+  payload: PriorityUpdateRequest,
+): Promise<TicketDetail> {
+  const { data } = await apiClient.patch<TicketDetail>(`/support/tickets/${ticketId}/priority`, payload)
   return data
 }
 

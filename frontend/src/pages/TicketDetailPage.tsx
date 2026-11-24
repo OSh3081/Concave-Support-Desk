@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getApiErrorMessage } from '../services/apiClient'
 import { confirmTicketResolution, getTicket, reopenTicket, replyToTicket } from '../services/tickets.service'
 import { formatTicketLabel, isTicketStatus, PriorityBadge, StatusBadge } from '../components/common/TicketBadges'
-import type { TicketDetail, TicketHistory, TicketReply } from '../types/tickets'
+import TicketConversation from '../components/tickets/TicketConversation'
+import TicketHistory from '../components/tickets/TicketHistory'
+import type { TicketDetail } from '../types/tickets'
 
 function formatDateTime(value: string): string {
   const date = new Date(value)
@@ -13,39 +15,6 @@ function formatDateTime(value: string): string {
 
 function characterCount(value: string): number {
   return Array.from(value).length
-}
-
-function ConversationReply({ reply }: { reply: TicketReply }) {
-  return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="break-words text-sm font-semibold text-slate-900">{reply.sender.name}</p>
-        <time dateTime={reply.created_at} className="text-xs text-slate-500">{formatDateTime(reply.created_at)}</time>
-      </div>
-      <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{reply.message}</p>
-    </article>
-  )
-}
-
-function HistoryEvent({ event }: { event: TicketHistory }) {
-  return (
-    <li className="relative pl-6 before:absolute before:bottom-0 before:left-[5px] before:top-2 before:w-px before:bg-slate-200 last:before:hidden">
-      <span aria-hidden="true" className="absolute left-0 top-2 h-3 w-3 rounded-full border-2 border-emerald-700 bg-white" />
-      <div className="pb-5">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-          <p className="text-sm font-semibold text-slate-800">{formatTicketLabel(event.action)}</p>
-          <time dateTime={event.created_at} className="text-xs text-slate-500">{formatDateTime(event.created_at)}</time>
-        </div>
-        <p className="mt-1 text-xs text-slate-500">By {event.actor.name}</p>
-        {event.reason && <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{event.reason}</p>}
-      </div>
-    </li>
-  )
-}
-
-function isInternalReplyHistory(event: TicketHistory): boolean {
-  if (event.action !== 'REPLY_ADDED' || event.new_value === null || Array.isArray(event.new_value)) return false
-  return event.new_value.is_internal === true
 }
 
 export default function TicketDetailPage() {
@@ -105,14 +74,6 @@ export default function TicketDetailPage() {
   }, [ticketId, validTicketId, refreshKey])
 
   const currentTicket = ticket?.id === ticketId ? ticket : null
-  const visibleReplies = useMemo(
-    () => [...(currentTicket?.replies ?? [])].filter((reply) => !reply.is_internal).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id),
-    [currentTicket],
-  )
-  const visibleHistory = useMemo(
-    () => [...(currentTicket?.history ?? [])].filter((event) => !isInternalReplyHistory(event)).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id),
-    [currentTicket],
-  )
   const statusIsKnown = currentTicket ? isTicketStatus(currentTicket.status) : true
   const repliesUnavailable = !statusIsKnown || currentTicket?.status === 'RESOLVED' || currentTicket?.status === 'CLOSED'
   const currentLoadError = loadErrorForTicketId === (ticketIdParam ?? '') ? loadError : null
@@ -246,32 +207,8 @@ export default function TicketDetailPage() {
               </div>
             </section>
 
-            <section aria-labelledby="conversation-heading" className="mt-7">
-              <div className="mb-3 flex items-end justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">Messages</p>
-                  <h2 id="conversation-heading" className="mt-1 text-xl font-semibold text-slate-950">Conversation</h2>
-                </div>
-                <span className="text-xs text-slate-500">{visibleReplies.length} {visibleReplies.length === 1 ? 'reply' : 'replies'}</span>
-              </div>
-              {visibleReplies.length > 0 ? (
-                <div className="space-y-3">{visibleReplies.map((reply) => <ConversationReply key={reply.id} reply={reply} />)}</div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-500">No replies yet. Your message and any support responses will appear here.</div>
-              )}
-            </section>
-
-            <section aria-labelledby="history-heading" className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="mb-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">Ticket updates</p>
-                <h2 id="history-heading" className="mt-1 text-xl font-semibold text-slate-950">History</h2>
-              </div>
-              {visibleHistory.length > 0 ? (
-                <ol className="space-y-0">{visibleHistory.map((event) => <HistoryEvent key={event.id} event={event} />)}</ol>
-              ) : (
-                <p className="text-sm text-slate-500">No ticket updates to show.</p>
-              )}
-            </section>
+            <TicketConversation replies={currentTicket.replies} audience="member" />
+            <TicketHistory events={currentTicket.history} audience="member" />
 
             <section aria-labelledby="reply-heading" className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <h2 id="reply-heading" className="text-lg font-semibold text-slate-950">Add a reply</h2>
