@@ -80,7 +80,9 @@ Health check: http://localhost:8000/api/health
 
 ### Run backend tests
 
-From the `backend/` directory:
+> **Required:** Backend tests must use the isolated PostgreSQL test database. Do not run them against the development database. Follow [TEST_DATABASE.md](TEST_DATABASE.md) to start the dedicated service and export its environment before running pytest.
+
+After completing the setup in that guide, run from the `backend/` directory:
 
 ```bash
 source .venv/bin/activate
@@ -126,8 +128,11 @@ Access tokens expire after 30 minutes by default. `ACCESS_TOKEN_EXPIRE_MINUTES` 
 - Backend health-check endpoint.
 - Mock authentication with signed bearer tokens and role dependencies.
 - SQLAlchemy database models, Alembic migration and demo seed process.
-- Member ticket creation, listing, detail, replies, resolution confirmation, and reopening.
-- Support queue filters, search, assignment, replies, status transitions, priority overrides, and dashboard metrics.
+- Member ticket creation and listing, ticket detail and conversation, public replies, resolution confirmation, and eligible reopening.
+- Support queue filters and search, ticket assignment and reassignment, and support status transitions.
+- Public support replies and internal notes with role-based visibility, plus the Request Information workflow and SLA pause/resume.
+- Support priority overrides with required reasons and priority-change audit history.
+- Support dashboard metrics and active-agent assignment controls.
 - Historical per-cycle SLA records and configuration-change audit history.
 - Category priority, TAT, and reopening settings managed by Support Heads.
 - UTC SLA deadlines, pause/resume on information requests, and pause accounting through resolution and reopening.
@@ -137,7 +142,6 @@ Access tokens expire after 30 minutes by default. `ACCESS_TOKEN_EXPIRE_MINUTES` 
 
 ### Planned functionality
 
-- Frontend ticket workflows and support dashboards.
 - Notification inbox and read-state endpoints.
 
 ## 6. Database Design
@@ -157,6 +161,8 @@ The proposed schema includes:
 - Notifications
 
 The implemented database schema is managed through SQLAlchemy models and Alembic migrations.
+
+The `/design` directory is the original Day 2 design submission and is preserved as the design baseline. This document supplements it with implementation details; it does not replace the submission. See [Implementation Decisions](docs/implementation-decisions.md) for the detailed engineering rationale.
 
 Refer to:
 - `design/02_database_design.md`
@@ -206,6 +212,10 @@ The following decisions guide the system design:
 - **Escalation:** Support can manually escalate eligible tickets, and a 60-second background job automatically escalates unresolved tickets after an unpaused SLA deadline passes. The dashboard counts overdue unresolved tickets (including escalated tickets) separately from escalations.
 - **Ticket lifecycle:** Members can confirm resolution or reopen eligible tickets within configured limits.
 
+Implementation refinements include per-cycle SLA history alongside mutable current SLA state; pausing active SLA time while awaiting member information; reopening only after closure within the configured window and attempt limit; and preserving elapsed active time and accumulated pauses during priority changes. A deferred database constraint ensures every committed ticket has exactly one SLA row, while configuration audit rows are protected against ordinary mutation. Automatic escalation commits the ticket change, SYSTEM history event and notifications together. Dashboard counts use explicit status and time boundaries; overdue counts include escalated unresolved tickets, while the escalated total is shown separately.
+
+The scheduler is process-local, so this assessment assumes one API worker. Production deployment should use a separate least-privilege runtime database role rather than the local bootstrap role. See [Implementation Decisions](docs/implementation-decisions.md) for the detailed rationale, edge cases and trade-offs.
+
 Further business rules and architectural decisions are documented in `/design`.
 
 ## 9. Known Issues and Next Steps
@@ -213,16 +223,15 @@ Further business rules and architectural decisions are documented in `/design`.
 ### Known issues
 
 - Authentication is development-only; production identity management, refresh tokens and token revocation are not implemented.
-- No frontend ticket workflow is implemented yet.
 - The scheduler currently starts in every API worker; use one backend worker process. Database row locks prevent duplicate ticket effects across workers, but do not prevent duplicate polling. A dedicated scheduler process needs a scheduler-role switch first.
+- The local Compose setup uses the bootstrap database user for backend connections. Before production, configure a separate least-privilege runtime database role; the audit triggers do not prevent a privileged owner from changing or disabling them.
 - Notification inbox/read endpoints are not implemented.
 - Demo users are seeded, but sample tickets are not seeded.
 
 ### Next steps
 
-1. Build the frontend ticket and support workflows.
-2. Add notification inbox/read endpoints and sample ticket data.
-3. Complete documentation and final walkthrough.
+1. Add notification inbox/read endpoints and sample ticket data.
+2. Complete documentation and final walkthrough.
 
 ---
 
