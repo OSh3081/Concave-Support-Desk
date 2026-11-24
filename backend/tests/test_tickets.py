@@ -5,17 +5,12 @@ import re
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
-from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
 from app.core.passwords import hash_password
 from app.core.tokens import create_access_token
-from app.db.session import engine
-from app.main import app
 from app.services import ticket_settings, tickets as ticket_service
 from app.models import (
     CategoryPrioritySetting,
@@ -39,33 +34,6 @@ _migration_path = Path(__file__).resolve().parents[1] / "alembic/versions/0002_s
 _migration_spec = importlib.util.spec_from_file_location("stage_d2_migration", _migration_path)
 _migration = importlib.util.module_from_spec(_migration_spec)
 _migration_spec.loader.exec_module(_migration)
-
-
-@pytest.fixture
-def db_session():
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = Session(
-        bind=connection,
-        expire_on_commit=False,
-        join_transaction_mode="create_savepoint",
-    )
-    try:
-        yield session
-    finally:
-        session.close()
-        transaction.rollback()
-        connection.close()
-
-
-@pytest.fixture
-def client(db_session):
-    app.dependency_overrides[get_db] = lambda: db_session
-    try:
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        app.dependency_overrides.pop(get_db, None)
 
 
 def user(db, role, email):

@@ -152,6 +152,11 @@ activemq-data/
 # Environments
 .env
 .envrc
+# Local test credentials and other environment-specific secrets
+.env.test
+.env.test.*
+backend/.env.test
+backend/.env.test.*
 .venv
 env/
 venv/

@@ -4,15 +4,13 @@ from typing import Optional
 import jwt
 import pytest
 from fastapi import APIRouter, Depends
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.dependencies import get_db, get_current_user, require_roles
+from app.api.dependencies import get_current_user, require_roles
 from app.core.config import settings
 from app.core.passwords import hash_password, verify_password
 from app.core.tokens import ALGORITHM, create_access_token
-from app.db.session import engine
 from app.db import seed as seed_module
 from app.main import app
 from app.models import User, UserRole
@@ -29,33 +27,6 @@ def support_head_test_endpoint(
 
 
 app.include_router(_authorization_test_router, prefix="/api")
-
-
-@pytest.fixture
-def db_session():
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = Session(
-        bind=connection,
-        expire_on_commit=False,
-        join_transaction_mode="create_savepoint",
-    )
-    try:
-        yield session
-    finally:
-        session.close()
-        transaction.rollback()
-        connection.close()
-
-
-@pytest.fixture
-def client(db_session: Session):
-    app.dependency_overrides[get_db] = lambda: db_session
-    try:
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        app.dependency_overrides.pop(get_db, None)
 
 
 def make_user(

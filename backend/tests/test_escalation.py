@@ -8,10 +8,10 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 import app.main as main_module
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal
 from app.main import lifespan
 from app.models import (
     Notification,
@@ -19,30 +19,15 @@ from app.models import (
     TicketCategory,
     TicketHistory,
     TicketPriority,
+    TicketReply,
     TicketSLA,
+    TicketSLACycle,
     TicketStatus,
     User,
     UserRole,
 )
 from app.services import escalation as escalation_service
 from app.services.escalation import AUTOMATIC_ESCALATION_REASON
-
-
-@pytest.fixture
-def db_session():
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = Session(
-        bind=connection,
-        expire_on_commit=False,
-        join_transaction_mode="create_savepoint",
-    )
-    try:
-        yield session
-    finally:
-        session.close()
-        transaction.rollback()
-        connection.close()
 
 
 @pytest.fixture
@@ -239,16 +224,30 @@ def test_ticket_failure_does_not_prevent_other_due_tickets(db_session, actors, m
 def test_two_concurrent_executions_escalate_a_ticket_once():
     now = datetime.now(timezone.utc)
     suffix = uuid4().hex
-    ids = {}
+    ids = {"created_user_ids": []}
     try:
         with SessionLocal.begin() as session:
-            system = User(
-                name="Concurrent System",
-                email="system@concave.internal",
-                role=UserRole.SYSTEM,
-                is_active=True,
-                password_hash=None,
+            system = session.scalar(
+                select(User).where(
+                    User.email == "system@concave.internal",
+                    User.role == UserRole.SYSTEM,
+                    User.is_active.is_(True),
+                    User.password_hash.is_(None),
+                )
             )
+            if system is None:
+                system = User(
+                    name="Concurrent System",
+                    email="system@concave.internal",
+                    role=UserRole.SYSTEM,
+                    is_active=True,
+                    password_hash=None,
+                )
+                session.add(system)
+                session.flush()
+                ids["created_user_ids"].append(system.id)
+            ids["system"] = system.id
+
             head = User(
                 name="Concurrent Head",
                 email=f"concurrent-head-{suffix}@example.test",
@@ -261,15 +260,43 @@ def test_two_concurrent_executions_escalate_a_ticket_once():
                 role=UserRole.MEMBER,
                 is_active=True,
             )
-            session.add_all([system, head, member])
+            session.add(head)
             session.flush()
-            ticket = make_ticket(
-                session,
-                member,
-                TicketStatus.IN_PROGRESS,
-                now - timedelta(minutes=1),
+            ids["head"] = head.id
+            ids["created_user_ids"].append(head.id)
+
+            member = User(
+                name="Concurrent Member",
+                email=f"concurrent-member-{suffix}@example.test",
+                role=UserRole.MEMBER,
+                is_active=True,
             )
-            ids.update(system=system.id, head=head.id, member=member.id, ticket=ticket.id)
+            session.add(member)
+            session.flush()
+            ids["member"] = member.id
+            ids["created_user_ids"].append(member.id)
+
+            ticket = Ticket(
+                member_id=member.id,
+                category=TicketCategory.OTHER,
+                subject=f"Concurrent escalation test {suffix}",
+                description="Concurrent escalation test ticket",
+                priority=TicketPriority.LOW,
+                status=TicketStatus.IN_PROGRESS,
+            )
+            session.add(ticket)
+            session.flush()
+            ids["ticket"] = ticket.id
+
+            sla = TicketSLA(
+                ticket_id=ticket.id,
+                started_at=now - timedelta(hours=1),
+                due_at=now - timedelta(minutes=1),
+                is_paused=False,
+            )
+            session.add(sla)
+            session.flush()
+            ids["sla"] = sla.id
 
         start_barrier = Barrier(2)
 
@@ -282,38 +309,54 @@ def test_two_concurrent_executions_escalate_a_ticket_once():
 
         with SessionLocal() as session:
             ticket = session.get(Ticket, ids["ticket"])
+            ids["history"] = list(
+                session.scalars(
+                    select(TicketHistory.id).where(
+                        TicketHistory.ticket_id == ids["ticket"],
+                        TicketHistory.action == "TICKET_ESCALATED",
+                    )
+                ).all()
+            )
+            ids["notifications"] = list(
+                session.scalars(
+                    select(Notification.id).where(
+                        Notification.ticket_id == ids["ticket"],
+                        Notification.type == "TICKET_ESCALATED",
+                    )
+                ).all()
+            )
             assert ticket.status is TicketStatus.ESCALATED
-            assert session.scalar(
-                select(func.count(TicketHistory.id)).where(
-                    TicketHistory.ticket_id == ticket.id,
-                    TicketHistory.action == "TICKET_ESCALATED",
-                )
-            ) == 1
-            assert session.scalar(
-                select(func.count(Notification.id)).where(
-                    Notification.ticket_id == ticket.id,
-                    Notification.type == "TICKET_ESCALATED",
-                )
-            ) == 1
+            assert len(ids["history"]) == 1
+            assert len(ids["notifications"]) == 1
         assert sum(results) == 1
     finally:
-        if ids:
+        if "ticket" in ids or ids["created_user_ids"]:
             with SessionLocal.begin() as session:
-                session.query(TicketHistory).filter(
-                    TicketHistory.ticket_id == ids["ticket"]
-                ).delete(synchronize_session=False)
-                session.query(Notification).filter(
-                    Notification.ticket_id == ids["ticket"]
-                ).delete(synchronize_session=False)
-                session.query(TicketSLA).filter(
-                    TicketSLA.ticket_id == ids["ticket"]
-                ).delete(synchronize_session=False)
-                session.query(Ticket).filter(Ticket.id == ids["ticket"]).delete(
-                    synchronize_session=False
-                )
-                session.query(User).filter(User.id.in_([ids["system"], ids["head"], ids["member"]])).delete(
-                    synchronize_session=False
-                )
+                ticket_id = ids.get("ticket")
+                if ticket_id is not None:
+                    session.query(TicketHistory).filter(
+                        TicketHistory.ticket_id == ticket_id
+                    ).delete(synchronize_session=False)
+                    session.query(TicketReply).filter(
+                        TicketReply.ticket_id == ticket_id
+                    ).delete(synchronize_session=False)
+                    session.query(Notification).filter(
+                        Notification.ticket_id == ticket_id
+                    ).delete(synchronize_session=False)
+                    session.query(TicketSLACycle).filter(
+                        TicketSLACycle.ticket_id == ticket_id
+                    ).delete(synchronize_session=False)
+                    session.query(TicketSLA).filter(
+                        TicketSLA.ticket_id == ticket_id
+                    ).delete(synchronize_session=False)
+                    session.query(Ticket).filter(Ticket.id == ticket_id).delete(
+                        synchronize_session=False
+                    )
+                created_user_ids = ids["created_user_ids"]
+                if created_user_ids:
+                    session.query(User).filter(User.id.in_(created_user_ids)).delete(
+                        synchronize_session=False
+                    )
 
 
 def test_overlapping_application_lifespans_share_one_scheduler(monkeypatch):
